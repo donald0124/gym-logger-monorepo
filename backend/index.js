@@ -61,7 +61,8 @@ app.get('/api/data', async (req, res) => {
             weight: row[3],
             rep: row[4],
             feeling: row[5], // RIR/Feeling
-            rest: row[6]
+            rest: row[6],
+            note: row[7] || '' // 新增讀取 Note
         })).reverse(); // 讓最新的在最上面 (Array 順序)
 
         res.json({ menu, logs });
@@ -74,17 +75,17 @@ app.get('/api/data', async (req, res) => {
 // 2. POST /api/save - 儲存進度
 app.post('/api/save', async (req, res) => {
     try {
-        const { unix, exercise, set, weight, rep, feeling, rest } = req.body;
+        const { unix, exercise, set, weight, rep, feeling, rest, note } = req.body;
         
         const client = await auth.getClient();
         const googleSheets = google.sheets({ version: 'v4', auth: client });
 
         await googleSheets.spreadsheets.values.append({
             spreadsheetId: SPREADSHEET_ID,
-            range: "log!A:G",
+            range: "log!A:H",
             valueInputOption: "USER_ENTERED",
             resource: {
-                values: [[unix, exercise, set, weight, rep, feeling, rest]]
+                values: [[unix, exercise, set, weight, rep, feeling, rest, note]]
             }
         });
 
@@ -98,16 +99,16 @@ app.post('/api/save', async (req, res) => {
 // 額外：編輯功能 (若要支援編輯，需實作此 API)
 app.post('/api/update', async (req, res) => {
     try {
-        const { rowId, unix, exercise, set, weight, rep, feeling, rest } = req.body;
+        const { rowId, unix, exercise, set, weight, rep, feeling, rest, note } = req.body;
         const client = await auth.getClient();
         const googleSheets = google.sheets({ version: 'v4', auth: client });
 
         await googleSheets.spreadsheets.values.update({
             spreadsheetId: SPREADSHEET_ID,
-            range: `log!A${rowId}:G${rowId}`,
+            range: `log!A${rowId}:H${rowId}`,
             valueInputOption: "USER_ENTERED",
             resource: {
-                values: [[unix, exercise, set, weight, rep, feeling, rest]]
+                values: [[unix, exercise, set, weight, rep, feeling, rest, note]]
             }
         });
         res.status(200).send("Updated successfully");
