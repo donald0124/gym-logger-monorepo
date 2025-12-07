@@ -14,15 +14,20 @@ const SPREADSHEET_ID = '1-72Xw_iiwuowxYgak7bBiihKTITUzgLH3WuEBzlAaOo';
 app.use(cors());
 app.use(bodyParser.json());
 
-// Google Sheets Auth
-// 優先讀取環境變數指定的路徑，如果沒有則預設找當前目錄
-const KEY_PATH = process.env.GOOGLE_APPLICATION_CREDENTIALS || path.join(__dirname, 'service-account.json');
-
-const auth = new google.auth.GoogleAuth({
-    keyFile: KEY_PATH, // 改用這個變數
+// 修改這裡：優先讀取環境變數，如果沒有才讀本地檔案
+let googleAuthOptions = {
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-});
-/* ---<Backend Setup end>--- */
+};
+
+if (process.env.GOOGLE_CREDENTIALS_JSON) {
+    // 如果 Zeabur 有設定這個變數，直接讀取內容
+    googleAuthOptions.credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
+} else {
+    // 本地開發時，讀取檔案
+    googleAuthOptions.keyFile = path.join(__dirname, 'service-account.json');
+}
+
+const auth = new google.auth.GoogleAuth(googleAuthOptions);
 
 /* ---<Backend API Logic start>--- */
 // 1. GET /api/data - 抓取 Menu 和 Logs
