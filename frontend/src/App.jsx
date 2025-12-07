@@ -3,7 +3,6 @@ import axios from 'axios';
 import { format, isSameDay, subDays, parseISO, fromUnixTime, getUnixTime } from 'date-fns';
 
 /* ---<Configuration start>--- */
-// 本地開發用 http://localhost:3001，Zeabur 上通常會用相對路徑或環境變數
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'; 
 const PRIMARY_COLOR = 'text-yellow-400';
 const BORDER_COLOR = 'border-yellow-400';
@@ -15,18 +14,22 @@ function App() {
   const [menu, setMenu] = useState({ adjs: [], verbs: [] });
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [loadMoreCount, setLoadMoreCount] = useState(0); // 0 = default 3 days
+  const [loadMoreCount, setLoadMoreCount] = useState(0); 
   
-  // Form State
+  // Main Input Form State
   const [form, setForm] = useState({
-    adjs: [], // array
-    verbs: [], // array
-    isTime: false, // true = seconds, false = kg
+    adjs: [], 
+    verbs: [], 
+    isTime: false, 
     weightOrTime: '',
     reps: '',
     rir: '',
     rest: '',
   });
+
+  // Editing State
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({});
 
   // LocalStorage Logic
   useEffect(() => {
@@ -73,7 +76,6 @@ function App() {
     const timestamp = getUnixTime(new Date());
     const fullExerciseName = [...form.adjs, ...form.verbs].join(' ');
 
-    // Calculate Set Number for Today
     const todayLogs = logs.filter(l => 
       isSameDay(fromUnixTime(l.unix), new Date()) && 
       l.exercise === fullExerciseName
@@ -90,37 +92,48 @@ function App() {
       rest: form.rest
     };
 
-    // Optimistic Update (UI first)
     const newLog = { ...payload, id: 'temp-' + Date.now() };
     setLogs([newLog, ...logs]);
 
     try {
       await axios.post(`${API_URL}/save`, payload);
-      // Update form logic: keep verb/adj/weight, clear rest? 
-      // User requested: "紀錄過後仍留著輸出框內容" -> Do nothing to form.
-      fetchData(); // Sync ID and formatting
+      fetchData(); 
     } catch (err) {
       alert("Save failed");
     }
   };
 
-  const handleUpdateLog = async (log, field, value) => {
-    // 簡單實作：若要修改，需調用後端 update API
-    // 這裡僅示範 UI 觸發，請確保後端有 /api/update
-     const newLogs = logs.map(l => l.id === log.id ? { ...l, [field]: value } : l);
-     setLogs(newLogs);
-     if(!log.id.toString().startsWith('temp')) {
-         try {
-             await axios.post(`${API_URL}/update`, { ...log, [field]: value, rowId: log.id });
-         } catch(e) { console.error("Update failed"); }
-     }
+  // Start Editing
+  const handleEditClick = (log) => {
+    setEditingId(log.id);
+    setEditForm({ ...log }); // Copy current log data to edit form
+  };
+
+  // Submit Edit
+  const handleEditSave = async () => {
+    // UI Optimistic Update
+    const newLogs = logs.map(l => l.id === editingId ? editForm : l);
+    setLogs(newLogs);
+    setEditingId(null);
+
+    // Backend Update
+    try {
+        // Ensure backend expects 'rowId' not 'id' if using previous logic, or match logic
+        await axios.post(`${API_URL}/update`, { 
+            ...editForm, 
+            rowId: editForm.id 
+        });
+    } catch(e) {
+        console.error("Update failed", e);
+        alert("更新失敗，請檢查網路");
+        fetchData(); // Revert on fail
+    }
   };
   /* ---<API Logic end>--- */
 
   /* ---<Helper Functions start>--- */
   const handleAutoFill = (selectedVerbs) => {
-    // Logic: Find most recent log with ANY of these verbs
-    const searchName = selectedVerbs.join(' '); // 簡化：假設完全匹配動作組合
+    const searchName = selectedVerbs.join(' ');
     const lastLog = logs.find(l => l.exercise.includes(searchName));
     
     if (lastLog) {
@@ -132,7 +145,7 @@ function App() {
         weightOrTime: val,
         reps: lastLog.rep,
         rir: lastLog.feeling,
-        rest: lastLog.rest || '' // Use last rest or empty? Prompt implies auto W,X,Y,T
+        rest: lastLog.rest || '' 
       }));
     }
   };
@@ -146,7 +159,7 @@ function App() {
 
   const copyTodayLogs = () => {
     const todayData = logs.filter(l => isSameDay(fromUnixTime(l.unix), new Date()))
-                          .sort((a,b) => a.unix - b.unix); // Oldest first for text
+                          .sort((a,b) => a.unix - b.unix);
     const text = todayData.map(l => 
       `${format(fromUnixTime(l.unix), 'HH:mm')} ${l.exercise} Set${l.set} ${l.weight} x ${l.rep} (RIR ${l.feeling}) Rest: ${l.rest}`
     ).join('\n');
@@ -155,7 +168,6 @@ function App() {
   /* ---<Helper Functions end>--- */
 
   /* ---<Render Helpers start>--- */
-  // Group logs by Date
   const groupedLogs = useMemo(() => {
     const groups = {};
     logs.forEach(log => {
@@ -166,21 +178,26 @@ function App() {
     return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]));
   }, [logs]);
 
-  const visibleDays = 1 + 3 + (loadMoreCount * 5); // Today + 3 past + loaded
+  const visibleDays = 1 + 3 + (loadMoreCount * 5); 
   /* ---<Render Helpers end>--- */
 
   return (
-    <div className="min-h-screen pb-10 max-w-md mx-auto relative px-4">
+    <div className="min-h-screen pb-10 max-w-md mx-auto relative px-4 pt-4">
       {/* Header */}
-      <header className={`text-3xl font-bold py-6 text-center ${PRIMARY_COLOR} tracking-tighter`}>
+      <header className={`text-3xl font-black py-4 text-center ${PRIMARY_COLOR} tracking-tighter flex justify-center items-center gap-2`}>
+        {/* Simple Icon inline */}
+        <svg width="32" height="32" viewBox="0 0 100 100" className="fill-current text-yellow-400">
+           <path d="M20 35 L20 65 M80 35 L80 65" stroke="currentColor" strokeWidth="12" strokeLinecap="round"/>
+           <line x1="20" y1="50" x2="80" y2="50" stroke="currentColor" strokeWidth="8"/>
+        </svg>
         Gym Logger
       </header>
 
       {/* ---<Input Section start>--- */ }
-      <div className="space-y-4 mb-8 bg-gray-900 p-4 rounded-2xl border border-gray-800">
+      <div className="space-y-4 mb-8 bg-gray-900 p-4 rounded-2xl border border-gray-800 shadow-xl">
         
         {/* Output Preview Box */}
-        <div className={`p-3 border rounded-lg bg-black font-mono text-sm min-h-[60px] flex items-center flex-wrap gap-2 ${BORDER_COLOR}`}>
+        <div className={`p-3 border rounded-lg bg-black font-mono text-sm min-h-[50px] flex items-center flex-wrap gap-2 ${BORDER_COLOR}`}>
            {form.adjs.map(a => <span key={a} className="text-gray-400">#{a}</span>)}
            {form.verbs.map(v => <span key={v} className="text-white font-bold">{v}</span>)}
            <span className={PRIMARY_COLOR}>
@@ -197,11 +214,11 @@ function App() {
                   value={form.weightOrTime}
                   onChange={e => setForm({...form, weightOrTime: e.target.value})}
                   placeholder={form.isTime ? "秒數" : "重量"}
-                  className="w-full bg-gray-800 rounded p-2 text-center text-white focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                  className="w-full bg-gray-800 rounded p-3 text-center text-white focus:outline-none focus:ring-2 focus:ring-yellow-400 placeholder-gray-600"
                 />
                 <button 
                   onClick={() => setForm({...form, isTime: !form.isTime})}
-                  className="absolute right-1 top-2 text-xs text-yellow-500 font-bold"
+                  className="absolute right-1 top-2 text-[10px] text-yellow-500 font-bold border border-yellow-500 rounded px-1"
                 >
                     {form.isTime ? 'SEC' : 'KG'}
                 </button>
@@ -211,14 +228,14 @@ function App() {
                 value={form.reps}
                 onChange={e => setForm({...form, reps: e.target.value})}
                 placeholder="次數"
-                className="col-span-1 bg-gray-800 rounded p-2 text-center text-white focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                className="col-span-1 bg-gray-800 rounded p-3 text-center text-white focus:outline-none focus:ring-2 focus:ring-yellow-400 placeholder-gray-600"
             />
             <input 
                 type="number" 
                 value={form.rir}
                 onChange={e => setForm({...form, rir: e.target.value})}
                 placeholder="RIR"
-                className="col-span-1 bg-gray-800 rounded p-2 text-center text-white focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                className="col-span-1 bg-gray-800 rounded p-3 text-center text-white focus:outline-none focus:ring-2 focus:ring-yellow-400 placeholder-gray-600"
             />
         </div>
 
@@ -230,13 +247,13 @@ function App() {
                 value={form.rest}
                 onChange={e => setForm({...form, rest: e.target.value})}
                 placeholder="秒"
-                className="w-20 bg-gray-800 rounded p-1 text-center text-white text-sm"
+                className="w-20 bg-gray-800 rounded p-2 text-center text-white text-sm focus:ring-1 focus:ring-yellow-400"
             />
             {[90, 120, 180].map(t => (
                 <button 
                     key={t}
                     onClick={() => setForm({...form, rest: t})}
-                    className="text-xs bg-gray-700 px-2 py-1 rounded text-gray-300"
+                    className="text-xs bg-gray-700 px-3 py-2 rounded text-gray-300 hover:bg-gray-600"
                 >
                     {t}s
                 </button>
@@ -271,7 +288,7 @@ function App() {
 
         <button 
             onClick={handleSave}
-            className={`w-full py-3 rounded-lg font-bold text-lg ${BG_BUTTON} active:scale-95 transition-transform`}
+            className={`w-full py-3 rounded-lg font-bold text-lg ${BG_BUTTON} active:scale-95 transition-transform shadow-lg shadow-yellow-900/20`}
         >
             加入紀錄
         </button>
@@ -285,45 +302,85 @@ function App() {
             
             return (
                 <div key={date} className="border-b border-gray-800 pb-2">
-                    <div className="flex justify-between items-center mb-2">
-                        <h3 className={`font-bold ${isToday ? 'text-xl text-white' : 'text-md text-gray-500'}`}>
-                            {format(parseISO(date), 'MM-dd')} {isToday && '(Today)'}
-                        </h3>
-                        {isToday && (
-                            <button onClick={copyTodayLogs} className="text-xs text-yellow-500 border border-yellow-500 px-2 py-1 rounded">
-                                複製
-                            </button>
-                        )}
-                    </div>
-                    
-                    {/* Collapsible Logic: Today always open, others collapsed logic could be added here, but requirement says "Accordion for non-today" */}
-                    <details open={isToday || idx < 3} className="group">
-                        <summary className="list-none cursor-pointer text-gray-600 text-center text-sm py-1 group-open:hidden">
-                             V 展開詳細 ({dayLogs.length})
-                        </summary>
-                        <div className="space-y-2 mt-2">
-                            {dayLogs.map((log) => (
-                                <div 
-                                    key={log.id} 
-                                    className={`grid grid-cols-12 gap-1 text-sm items-center p-2 rounded ${isToday ? 'bg-gray-900' : 'bg-gray-950 opacity-70'}`}
+                     <details open={isToday || idx < 3} className="group">
+                        <summary className="list-none cursor-pointer flex justify-between items-center mb-2 select-none">
+                            <div className="flex items-center gap-2">
+                                {/* Rotating Arrow Icon */}
+                                <svg 
+                                    className="w-4 h-4 text-gray-500 transition-transform group-open:rotate-90" 
+                                    fill="none" viewBox="0 0 24 24" stroke="currentColor"
                                 >
-                                    <div className="col-span-2 text-xs text-gray-500">
-                                        {format(fromUnixTime(log.unix), 'HH:mm')}
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
+                                <h3 className={`font-bold ${isToday ? 'text-xl text-white' : 'text-md text-gray-400'}`}>
+                                    {format(parseISO(date), 'MM-dd')} {isToday && '(Today)'}
+                                </h3>
+                            </div>
+                            
+                            {isToday && (
+                                <button onClick={(e) => {e.preventDefault(); copyTodayLogs();}} className="text-xs text-yellow-500 border border-yellow-500 px-2 py-1 rounded active:bg-yellow-500 active:text-black">
+                                    複製
+                                </button>
+                            )}
+                        </summary>
+
+                        <div className="space-y-2 mt-2 pl-2">
+                            {dayLogs.map((log) => {
+                                const isEditing = editingId === log.id;
+                                
+                                // --- EDIT MODE ---
+                                if (isEditing) {
+                                    return (
+                                        <div key={log.id} className="bg-gray-800 p-2 rounded border border-yellow-500/50 animate-pulse-fast">
+                                            <div className="text-xs text-yellow-500 mb-1">編輯中: {log.exercise} Set{log.set}</div>
+                                            <div className="grid grid-cols-4 gap-2 mb-2">
+                                                <input value={editForm.weight} onChange={e=>setEditForm({...editForm, weight: e.target.value})} className="bg-black text-white p-1 rounded text-center text-sm" placeholder="重量"/>
+                                                <input value={editForm.rep} onChange={e=>setEditForm({...editForm, rep: e.target.value})} className="bg-black text-white p-1 rounded text-center text-sm" placeholder="次數"/>
+                                                <input value={editForm.feeling} onChange={e=>setEditForm({...editForm, feeling: e.target.value})} className="bg-black text-white p-1 rounded text-center text-sm" placeholder="RIR"/>
+                                                <input value={editForm.rest} onChange={e=>setEditForm({...editForm, rest: e.target.value})} className="bg-black text-white p-1 rounded text-center text-sm" placeholder="Rest"/>
+                                            </div>
+                                            <div className="flex gap-2 justify-end">
+                                                <button onClick={() => setEditingId(null)} className="text-xs bg-gray-700 px-3 py-1 rounded text-white">取消</button>
+                                                <button onClick={handleEditSave} className="text-xs bg-yellow-500 px-3 py-1 rounded text-black font-bold">儲存</button>
+                                            </div>
+                                        </div>
+                                    )
+                                }
+
+                                // --- VIEW MODE ---
+                                return (
+                                    <div 
+                                        key={log.id} 
+                                        onClick={() => handleEditClick(log)} // Click to Edit
+                                        className={`grid grid-cols-12 gap-1 text-sm items-center p-3 rounded cursor-pointer transition-colors active:scale-[0.99]
+                                            ${isToday ? 'bg-gray-900 hover:bg-gray-800' : 'bg-gray-950 opacity-70 hover:opacity-100'}
+                                        `}
+                                    >
+                                        <div className="col-span-2 text-xs text-gray-500">
+                                            {format(fromUnixTime(log.unix), 'HH:mm')}
+                                        </div>
+                                        <div className="col-span-5 font-bold text-white truncate">
+                                            {log.exercise} <span className="text-xs text-gray-400">S{log.set}</span>
+                                        </div>
+                                        <div className="col-span-5 text-right flex justify-end gap-2 text-gray-300">
+                                            <span>{log.weight}</span>
+                                            <span>x{log.rep}</span>
+                                            <span className={PRIMARY_COLOR}>@{log.feeling}</span>
+                                        </div>
+                                        {/* Rest Time Display */}
+                                        {log.rest && (
+                                            <div className="col-span-12 text-[10px] text-right text-gray-500 mt-1">
+                                                Rest: {log.rest}s
+                                            </div>
+                                        )}
+                                        {!log.rest && isToday && (
+                                            <div className="col-span-12 text-[10px] text-right text-gray-700 mt-1 italic">
+                                                (點擊紀錄 Rest)
+                                            </div>
+                                        )}
                                     </div>
-                                    <div className="col-span-5 font-bold text-white truncate">
-                                        {log.exercise} <span className="text-xs text-gray-400">#{log.set}</span>
-                                    </div>
-                                    <div className="col-span-5 text-right flex justify-end gap-2 text-gray-300">
-                                        <span>{log.weight}</span>
-                                        <span>x{log.rep}</span>
-                                        <span className={PRIMARY_COLOR}>@{log.feeling}</span>
-                                    </div>
-                                    {/* Editable Fields Expansion could go here on click */}
-                                    {log.rest && <div className="col-span-12 text-xs text-right text-gray-600 border-t border-gray-800 mt-1 pt-1">
-                                        Rest: {log.rest}s
-                                    </div>}
-                                </div>
-                            ))}
+                                )
+                            })}
                         </div>
                     </details>
                 </div>
@@ -332,37 +389,38 @@ function App() {
         
         <button 
             onClick={() => setLoadMoreCount(c => c + 1)}
-            className="w-full py-2 text-gray-500 text-sm hover:text-white"
+            className="w-full py-4 text-gray-500 text-sm hover:text-white border-t border-gray-800 mt-4"
         >
-            [載入更多]
+            [載入更多歷史紀錄]
         </button>
       </div>
       {/* ---<Log Table Section end>--- */}
 
       {/* ---<Contribution Graph start>--- */}
-      <div className="mt-10 mb-6">
-          <h4 className="text-xs text-gray-500 mb-2">Consistency</h4>
+      <div className="mt-12 mb-6 p-4 bg-gray-900/50 rounded-xl">
+          <h4 className="text-xs text-gray-400 mb-3 font-bold uppercase tracking-widest">Consistency</h4>
           <div className="flex gap-1 overflow-x-auto hide-scrollbar pb-2 justify-end">
               {Array.from({ length: 90 }).map((_, i) => {
                   const day = subDays(new Date(), 89 - i);
                   const dayStr = format(day, 'yyyy-MM-dd');
                   const count = groupedLogs.find(g => g[0] === dayStr)?.[1].length || 0;
-                  // Color scale
+                  
+                  // Brighter Color Scale (Yellow 400-500 range)
                   let bg = 'bg-gray-800';
-                  if (count > 0) bg = 'bg-yellow-900';
-                  if (count > 3) bg = 'bg-yellow-700';
-                  if (count > 6) bg = 'bg-yellow-500';
-                  if (count > 10) bg = 'bg-yellow-300';
+                  if (count > 0) bg = 'bg-yellow-900/60'; // 1-3 sets
+                  if (count > 3) bg = 'bg-yellow-600';    // 4-6 sets
+                  if (count > 6) bg = 'bg-yellow-500';    // 7-10 sets
+                  if (count > 10) bg = 'bg-yellow-300 shadow-[0_0_8px_rgba(250,204,21,0.6)]'; // 10+ sets (Glowing)
                   
                   return (
-                    <div key={i} className={`w-2 h-2 rounded-sm flex-shrink-0 ${bg}`} title={`${dayStr}: ${count}`} />
+                    <div key={i} className={`w-2 h-2 rounded-sm flex-shrink-0 transition-all ${bg}`} title={`${dayStr}: ${count}`} />
                   )
               })}
           </div>
       </div>
       {/* ---<Contribution Graph end>--- */}
 
-      <footer className="text-center text-xs text-gray-700 py-4">
+      <footer className="text-center text-[10px] text-gray-600 py-6">
           designed by sphsieh 2025
       </footer>
     </div>
