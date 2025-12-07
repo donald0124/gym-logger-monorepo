@@ -15,8 +15,11 @@ app.use(cors());
 app.use(bodyParser.json());
 
 // Google Sheets Auth
+// 優先讀取環境變數指定的路徑，如果沒有則預設找當前目錄
+const KEY_PATH = process.env.GOOGLE_APPLICATION_CREDENTIALS || path.join(__dirname, 'service-account.json');
+
 const auth = new google.auth.GoogleAuth({
-    keyFile: path.join(__dirname, 'service-account.json'),
+    keyFile: KEY_PATH, // 改用這個變數
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
 });
 /* ---<Backend Setup end>--- */
