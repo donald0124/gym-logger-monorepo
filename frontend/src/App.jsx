@@ -25,6 +25,7 @@ function App() {
     reps: '',
     rir: '',
     rest: '',
+    note: '',
   });
 
   // Editing State
@@ -89,7 +90,8 @@ function App() {
       weight: form.isTime ? `${form.weightOrTime}s` : `${form.weightOrTime}kg`,
       rep: form.reps,
       feeling: form.rir,
-      rest: form.rest
+      rest: form.rest,
+      note: form.note // 新增
     };
 
     const newLog = { ...payload, id: 'temp-' + Date.now() };
@@ -98,6 +100,8 @@ function App() {
     try {
       await axios.post(`${API_URL}/save`, payload);
       fetchData(); 
+      // 儲存後清空備註 通常備註每組不同
+      setForm(prev => ({...prev, note: ''}));
     } catch (err) {
       alert("Save failed");
     }
@@ -241,24 +245,41 @@ function App() {
 
         {/* Rest Time */}
         <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500">Rest:</span>
+            {/* Note Input (Grow to fill space) */}
             <input 
-                type="number"
-                value={form.rest}
-                onChange={e => setForm({...form, rest: e.target.value})}
-                placeholder="秒"
-                className="w-20 bg-gray-800 rounded p-2 text-center text-white text-sm focus:ring-1 focus:ring-yellow-400"
+                type="text"
+                value={form.note}
+                onChange={e => setForm({...form, note: e.target.value})}
+                placeholder="備註 (選填)..."
+                className="flex-grow bg-gray-800 rounded p-2 text-white text-sm focus:ring-1 focus:ring-yellow-400 placeholder-gray-600"
             />
+
+            {/* Rest Input */}
+            <div className="flex items-center gap-1 shrink-0">
+                <span className="text-[10px] text-gray-500">Rest</span>
+                <input 
+                    type="number"
+                    value={form.rest}
+                    onChange={e => setForm({...form, rest: e.target.value})}
+                    placeholder="秒"
+                    className="w-12 bg-gray-800 rounded p-2 text-center text-white text-sm focus:ring-1 focus:ring-yellow-400"
+                />
+            </div>
+        </div>
+
+        {/* Rest Shortcuts (獨立一行，保持整潔) */}
+        <div className="flex justify-end gap-2">
             {[90, 120, 180].map(t => (
                 <button 
                     key={t}
                     onClick={() => setForm({...form, rest: t})}
-                    className="text-xs bg-gray-700 px-3 py-2 rounded text-gray-300 hover:bg-gray-600"
+                    className="text-[10px] bg-gray-800 border border-gray-700 px-2 py-1 rounded text-gray-400 hover:text-white"
                 >
                     {t}s
                 </button>
             ))}
         </div>
+
 
         {/* Shortcuts - Adjs */}
         <div className="flex flex-wrap gap-2">
@@ -339,6 +360,15 @@ function App() {
                                                 <input value={editForm.feeling} onChange={e=>setEditForm({...editForm, feeling: e.target.value})} className="bg-black text-white p-1 rounded text-center text-sm" placeholder="RIR"/>
                                                 <input value={editForm.rest} onChange={e=>setEditForm({...editForm, rest: e.target.value})} className="bg-black text-white p-1 rounded text-center text-sm" placeholder="Rest"/>
                                             </div>
+                                            {/* 新增 Note 編輯 */}
+                                            <input 
+                                                value={editForm.note || ''} 
+                                                onChange={e=>setEditForm({...editForm, note: e.target.value})} 
+                                                className="w-full bg-black text-white p-1 rounded text-left text-sm mb-2" 
+                                                placeholder="備註..."
+                                            />
+
+
                                             <div className="flex gap-2 justify-end">
                                                 <button onClick={() => setEditingId(null)} className="text-xs bg-gray-700 px-3 py-1 rounded text-white">取消</button>
                                                 <button onClick={handleEditSave} className="text-xs bg-yellow-500 px-3 py-1 rounded text-black font-bold">儲存</button>
@@ -368,11 +398,19 @@ function App() {
                                             <span className={PRIMARY_COLOR}>@{log.feeling}</span>
                                         </div>
                                         {/* Rest Time Display */}
-                                        {log.rest && (
-                                            <div className="col-span-12 text-[10px] text-right text-gray-500 mt-1">
-                                                Rest: {log.rest}s
-                                            </div>
-                                        )}
+                                        <div className="col-span-12 flex justify-between items-start mt-1 pt-1 border-t border-gray-800/50">
+                                            {/* 備註 (小字, 灰色) */}
+                                            <span className="text-xs text-gray-400 italic text-left flex-grow pr-2">
+                                                {log.note}
+                                            </span>
+                                            
+                                            {/* Rest Time */}
+                                            {log.rest && (
+                                                <span className="text-[10px] text-gray-600 whitespace-nowrap shrink-0">
+                                                    Rest: {log.rest}s
+                                                </span>
+                                            )}
+                                        </div>
                                         {!log.rest && isToday && (
                                             <div className="col-span-12 text-[10px] text-right text-gray-700 mt-1 italic">
                                                 (點擊紀錄 Rest)
