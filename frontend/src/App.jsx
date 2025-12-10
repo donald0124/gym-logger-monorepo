@@ -7,7 +7,22 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 const PRIMARY_COLOR = 'text-yellow-400';
 const BORDER_COLOR = 'border-yellow-400';
 const BG_BUTTON = 'bg-yellow-400 text-black hover:bg-yellow-300';
+const BG_SELECTED_ADJ = 'bg-yellow-400 text-black font-bold'; // 形容詞選中後的亮色樣式
 /* ---<Configuration end>--- */
+
+// Toast 提示元件 (取代 Alert)
+const Toast = ({ message, onClose }) => {
+    useEffect(() => {
+        const timer = setTimeout(onClose, 2000); // 2秒後自動消失
+        return () => clearTimeout(timer);
+    }, [onClose]);
+
+    return (
+        <div className="fixed top-10 left-1/2 transform -translate-x-1/2 bg-yellow-400 text-black px-6 py-2 rounded-full shadow-lg font-bold z-50 animate-bounce">
+            {message}
+        </div>
+    );
+};
 
 function App() {
   /* ---<State Management start>--- */
@@ -15,6 +30,7 @@ function App() {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadMoreCount, setLoadMoreCount] = useState(0); 
+  const [toastMsg, setToastMsg] = useState(null); // Toast 狀態
   
   // Main Input Form State
   const [form, setForm] = useState({
@@ -91,7 +107,7 @@ function App() {
       rep: form.reps,
       feeling: form.rir,
       rest: form.rest,
-      note: form.note // 新增
+      note: form.note
     };
 
     const newLog = { ...payload, id: 'temp-' + Date.now() };
@@ -100,7 +116,6 @@ function App() {
     try {
       await axios.post(`${API_URL}/save`, payload);
       fetchData(); 
-      // 儲存後清空備註 通常備註每組不同
       setForm(prev => ({...prev, note: ''}));
     } catch (err) {
       alert("Save failed");
@@ -110,19 +125,16 @@ function App() {
   // Start Editing
   const handleEditClick = (log) => {
     setEditingId(log.id);
-    setEditForm({ ...log }); // Copy current log data to edit form
+    setEditForm({ ...log }); 
   };
 
-  // Submit Edit
+  // Submit Edit (Update)
   const handleEditSave = async () => {
-    // UI Optimistic Update
     const newLogs = logs.map(l => l.id === editingId ? editForm : l);
     setLogs(newLogs);
     setEditingId(null);
 
-    // Backend Update
     try {
-        // Ensure backend expects 'rowId' not 'id' if using previous logic, or match logic
         await axios.post(`${API_URL}/update`, { 
             ...editForm, 
             rowId: editForm.id 
@@ -130,7 +142,26 @@ function App() {
     } catch(e) {
         console.error("Update failed", e);
         alert("更新失敗，請檢查網路");
-        fetchData(); // Revert on fail
+        fetchData();
+    }
+  };
+
+  // Delete Log
+  const handleDelete = async () => {
+    if(!window.confirm("確定要刪除這筆紀錄嗎？")) return;
+
+    const newLogs = logs.filter(l => l.id !== editingId);
+    setLogs(newLogs);
+    setEditingId(null);
+
+    try {
+        await axios.post(`${API_URL}/delete`, { rowId: editForm.id });
+        // 刪除後因為 Row ID 會改變，建議重新抓取
+        setTimeout(fetchData, 1000); 
+    } catch (e) {
+        console.error("Delete failed", e);
+        alert("刪除失敗");
+        fetchData();
     }
   };
   /* ---<API Logic end>--- */
@@ -164,10 +195,17 @@ function App() {
   const copyTodayLogs = () => {
     const todayData = logs.filter(l => isSameDay(fromUnixTime(l.unix), new Date()))
                           .sort((a,b) => a.unix - b.unix);
-    const text = todayData.map(l => 
-      `${format(fromUnixTime(l.unix), 'HH:mm')} ${l.exercise} Set${l.set} ${l.weight} x ${l.rep} (RIR ${l.feeling}) Rest: ${l.rest}`
-    ).join('\n');
-    navigator.clipboard.writeText(text).then(() => alert("已複製今日紀錄"));
+    
+    // 修改複製格式：包含秒數、備註
+    const text = todayData.map(l => {
+      const timeStr = format(fromUnixTime(l.unix), 'HH:mm:ss'); // 包含秒
+      const noteStr = l.note ? ` Note: ${l.note}` : '';
+      return `${timeStr} ${l.exercise} Set${l.set} ${l.weight} x ${l.rep} (RIR ${l.feeling}) Rest: ${l.rest}${noteStr}`;
+    }).join('\n');
+
+    navigator.clipboard.writeText(text).then(() => {
+        setToastMsg("複製成功！"); // 使用 Toast
+    });
   };
   /* ---<Helper Functions end>--- */
 
@@ -187,10 +225,13 @@ function App() {
 
   return (
     <div className="min-h-screen pb-10 max-w-md mx-auto relative px-4 pt-4">
+      {/* Toast Notification */}
+      {toastMsg && <Toast message={toastMsg} onClose={() => setToastMsg(null)} />}
+
       {/* Header */}
-      <header className={`text-3xl font-black py-4 text-center ${PRIMARY_COLOR} tracking-tighter flex justify-center items-center gap-2`}>
+      <header className={`text-4xl font-black py-6 text-center ${PRIMARY_COLOR} tracking-tighter flex justify-center items-center gap-2`}>
         {/* Simple Icon inline */}
-        <svg width="32" height="32" viewBox="0 0 100 100" className="fill-current text-yellow-400">
+        <svg width="40" height="40" viewBox="0 0 100 100" className="fill-current text-yellow-400">
            <path d="M20 35 L20 65 M80 35 L80 65" stroke="currentColor" strokeWidth="12" strokeLinecap="round"/>
            <line x1="20" y1="50" x2="80" y2="50" stroke="currentColor" strokeWidth="8"/>
         </svg>
@@ -198,27 +239,27 @@ function App() {
       </header>
 
       {/* ---<Input Section start>--- */ }
-      <div className="space-y-4 mb-8 bg-gray-900 p-4 rounded-2xl border border-gray-800 shadow-xl">
+      <div className="space-y-4 mb-8 bg-gray-900 p-5 rounded-2xl border border-gray-800 shadow-xl">
         
         {/* Output Preview Box */}
-        <div className={`p-3 border rounded-lg bg-black font-mono text-sm min-h-[50px] flex items-center flex-wrap gap-2 ${BORDER_COLOR}`}>
+        <div className={`p-4 border rounded-lg bg-black font-mono text-base min-h-[60px] flex items-center flex-wrap gap-2 ${BORDER_COLOR}`}>
            {form.adjs.map(a => <span key={a} className="text-gray-400">#{a}</span>)}
            {form.verbs.map(v => <span key={v} className="text-white font-bold">{v}</span>)}
            <span className={PRIMARY_COLOR}>
              {form.weightOrTime}{form.isTime ? 's' : 'kg'} x {form.reps} (RIR{form.rir})
            </span>
-           {form.rest && <span className="text-xs text-gray-500">Rest {form.rest}s</span>}
+           {form.rest && <span className="text-sm text-gray-500">Rest {form.rest}s</span>}
         </div>
 
-        {/* Inputs Grid */}
-        <div className="grid grid-cols-3 gap-2">
+        {/* Inputs Grid (字體加大) */}
+        <div className="grid grid-cols-3 gap-3">
             <div className="relative col-span-1">
                 <input 
                   type="number" 
                   value={form.weightOrTime}
                   onChange={e => setForm({...form, weightOrTime: e.target.value})}
                   placeholder={form.isTime ? "秒數" : "重量"}
-                  className="w-full bg-gray-800 rounded p-3 text-center text-white focus:outline-none focus:ring-2 focus:ring-yellow-400 placeholder-gray-600"
+                  className="w-full bg-gray-800 rounded p-4 text-center text-white text-lg focus:outline-none focus:ring-2 focus:ring-yellow-400 placeholder-gray-600"
                 />
                 <button 
                   onClick={() => setForm({...form, isTime: !form.isTime})}
@@ -232,62 +273,60 @@ function App() {
                 value={form.reps}
                 onChange={e => setForm({...form, reps: e.target.value})}
                 placeholder="次數"
-                className="col-span-1 bg-gray-800 rounded p-3 text-center text-white focus:outline-none focus:ring-2 focus:ring-yellow-400 placeholder-gray-600"
+                className="col-span-1 bg-gray-800 rounded p-4 text-center text-white text-lg focus:outline-none focus:ring-2 focus:ring-yellow-400 placeholder-gray-600"
             />
             <input 
                 type="number" 
                 value={form.rir}
                 onChange={e => setForm({...form, rir: e.target.value})}
                 placeholder="RIR"
-                className="col-span-1 bg-gray-800 rounded p-3 text-center text-white focus:outline-none focus:ring-2 focus:ring-yellow-400 placeholder-gray-600"
+                className="col-span-1 bg-gray-800 rounded p-4 text-center text-white text-lg focus:outline-none focus:ring-2 focus:ring-yellow-400 placeholder-gray-600"
             />
         </div>
 
-        {/* Rest Time */}
+        {/* Rest Time & Note */}
         <div className="flex items-center gap-2">
-            {/* Note Input (Grow to fill space) */}
             <input 
                 type="text"
                 value={form.note}
                 onChange={e => setForm({...form, note: e.target.value})}
                 placeholder="備註 (選填)..."
-                className="flex-grow bg-gray-800 rounded p-2 text-white text-sm focus:ring-1 focus:ring-yellow-400 placeholder-gray-600"
+                className="flex-grow bg-gray-800 rounded p-3 text-white text-base focus:ring-1 focus:ring-yellow-400 placeholder-gray-600"
             />
 
-            {/* Rest Input */}
             <div className="flex items-center gap-1 shrink-0">
-                <span className="text-[10px] text-gray-500">Rest</span>
+                <span className="text-xs text-gray-500">Rest</span>
                 <input 
                     type="number"
                     value={form.rest}
                     onChange={e => setForm({...form, rest: e.target.value})}
                     placeholder="秒"
-                    className="w-12 bg-gray-800 rounded p-2 text-center text-white text-sm focus:ring-1 focus:ring-yellow-400"
+                    className="w-16 bg-gray-800 rounded p-3 text-center text-white text-base focus:ring-1 focus:ring-yellow-400"
                 />
             </div>
         </div>
 
-        {/* Rest Shortcuts (獨立一行，保持整潔) */}
-        <div className="flex justify-end gap-2">
+        {/* Rest Shortcuts */}
+        <div className="flex justify-end gap-3">
             {[90, 120, 180].map(t => (
                 <button 
                     key={t}
                     onClick={() => setForm({...form, rest: t})}
-                    className="text-[10px] bg-gray-800 border border-gray-700 px-2 py-1 rounded text-gray-400 hover:text-white"
+                    className="text-xs bg-gray-800 border border-gray-700 px-3 py-2 rounded text-gray-400 hover:text-white"
                 >
                     {t}s
                 </button>
             ))}
         </div>
 
-
-        {/* Shortcuts - Adjs */}
+        {/* Shortcuts - Adjs (修改選中樣式) */}
         <div className="flex flex-wrap gap-2">
             {menu.adjs.map(item => (
                 <button 
                     key={item}
                     onClick={() => toggleSelection(form.adjs, item, 'adjs')}
-                    className={`px-3 py-1 rounded-full text-xs transition-colors ${form.adjs.includes(item) ? 'bg-gray-600 text-white' : 'bg-black text-gray-500 border border-gray-800'}`}
+                    // 這裡改用了 BG_SELECTED_ADJ 變數
+                    className={`px-4 py-2 rounded-full text-sm transition-colors ${form.adjs.includes(item) ? BG_SELECTED_ADJ : 'bg-black text-gray-500 border border-gray-800'}`}
                 >
                     {item}
                 </button>
@@ -300,7 +339,7 @@ function App() {
                 <button 
                     key={item}
                     onClick={() => toggleSelection(form.verbs, item, 'verbs')}
-                    className={`px-3 py-1 rounded-full text-sm font-bold transition-colors ${form.verbs.includes(item) ? BG_BUTTON : 'bg-gray-800 text-gray-300'}`}
+                    className={`px-4 py-2 rounded-full text-base font-bold transition-colors ${form.verbs.includes(item) ? BG_BUTTON : 'bg-gray-800 text-gray-300'}`}
                 >
                     {item}
                 </button>
@@ -309,7 +348,7 @@ function App() {
 
         <button 
             onClick={handleSave}
-            className={`w-full py-3 rounded-lg font-bold text-lg ${BG_BUTTON} active:scale-95 transition-transform shadow-lg shadow-yellow-900/20`}
+            className={`w-full py-4 rounded-lg font-bold text-xl ${BG_BUTTON} active:scale-95 transition-transform shadow-lg shadow-yellow-900/20`}
         >
             加入紀錄
         </button>
@@ -324,54 +363,68 @@ function App() {
             return (
                 <div key={date} className="border-b border-gray-800 pb-2">
                      <details open={isToday || idx < 3} className="group">
-                        <summary className="list-none cursor-pointer flex justify-between items-center mb-2 select-none">
+                        <summary className="list-none cursor-pointer flex justify-between items-center mb-4 select-none bg-gray-900/50 p-2 rounded">
                             <div className="flex items-center gap-2">
-                                {/* Rotating Arrow Icon */}
                                 <svg 
-                                    className="w-4 h-4 text-gray-500 transition-transform group-open:rotate-90" 
+                                    className="w-5 h-5 text-gray-500 transition-transform group-open:rotate-90" 
                                     fill="none" viewBox="0 0 24 24" stroke="currentColor"
                                 >
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                                 </svg>
-                                <h3 className={`font-bold ${isToday ? 'text-xl text-white' : 'text-md text-gray-400'}`}>
+                                <h3 className={`font-bold ${isToday ? 'text-2xl text-white' : 'text-lg text-gray-400'}`}>
                                     {format(parseISO(date), 'MM-dd')} {isToday && '(Today)'}
                                 </h3>
                             </div>
                             
                             {isToday && (
-                                <button onClick={(e) => {e.preventDefault(); copyTodayLogs();}} className="text-xs text-yellow-500 border border-yellow-500 px-2 py-1 rounded active:bg-yellow-500 active:text-black">
+                                <button onClick={(e) => {e.preventDefault(); copyTodayLogs();}} className="text-sm text-yellow-500 border border-yellow-500 px-3 py-1 rounded active:bg-yellow-500 active:text-black">
                                     複製
                                 </button>
                             )}
                         </summary>
 
-                        <div className="space-y-2 mt-2 pl-2">
+                        <div className="space-y-3 mt-2 pl-1">
                             {dayLogs.map((log) => {
                                 const isEditing = editingId === log.id;
                                 
                                 // --- EDIT MODE ---
                                 if (isEditing) {
                                     return (
-                                        <div key={log.id} className="bg-gray-800 p-2 rounded border border-yellow-500/50 animate-pulse-fast">
-                                            <div className="text-xs text-yellow-500 mb-1">編輯中: {log.exercise} Set{log.set}</div>
+                                        <div key={log.id} className="bg-gray-800 p-3 rounded border border-yellow-500/50 animate-pulse-fast">
+                                            <div className="text-sm text-yellow-500 mb-2">編輯紀錄 (Set {log.set})</div>
+                                            
+                                            {/* 新增：編輯動作名稱 */}
+                                            <input 
+                                                value={editForm.exercise} 
+                                                onChange={e=>setEditForm({...editForm, exercise: e.target.value})} 
+                                                className="w-full bg-black text-white p-2 rounded text-left text-base mb-2 border border-gray-700" 
+                                                placeholder="動作名稱..."
+                                            />
+
                                             <div className="grid grid-cols-4 gap-2 mb-2">
-                                                <input value={editForm.weight} onChange={e=>setEditForm({...editForm, weight: e.target.value})} className="bg-black text-white p-1 rounded text-center text-sm" placeholder="重量"/>
-                                                <input value={editForm.rep} onChange={e=>setEditForm({...editForm, rep: e.target.value})} className="bg-black text-white p-1 rounded text-center text-sm" placeholder="次數"/>
-                                                <input value={editForm.feeling} onChange={e=>setEditForm({...editForm, feeling: e.target.value})} className="bg-black text-white p-1 rounded text-center text-sm" placeholder="RIR"/>
-                                                <input value={editForm.rest} onChange={e=>setEditForm({...editForm, rest: e.target.value})} className="bg-black text-white p-1 rounded text-center text-sm" placeholder="Rest"/>
+                                                <input value={editForm.weight} onChange={e=>setEditForm({...editForm, weight: e.target.value})} className="bg-black text-white p-2 rounded text-center text-base" placeholder="重量"/>
+                                                <input value={editForm.rep} onChange={e=>setEditForm({...editForm, rep: e.target.value})} className="bg-black text-white p-2 rounded text-center text-base" placeholder="次數"/>
+                                                <input value={editForm.feeling} onChange={e=>setEditForm({...editForm, feeling: e.target.value})} className="bg-black text-white p-2 rounded text-center text-base" placeholder="RIR"/>
+                                                <input value={editForm.rest} onChange={e=>setEditForm({...editForm, rest: e.target.value})} className="bg-black text-white p-2 rounded text-center text-base" placeholder="Rest"/>
                                             </div>
-                                            {/* 新增 Note 編輯 */}
+                                            {/* Note 編輯 */}
                                             <input 
                                                 value={editForm.note || ''} 
                                                 onChange={e=>setEditForm({...editForm, note: e.target.value})} 
-                                                className="w-full bg-black text-white p-1 rounded text-left text-sm mb-2" 
+                                                className="w-full bg-black text-white p-2 rounded text-left text-base mb-3" 
                                                 placeholder="備註..."
                                             />
 
+                                            <div className="flex justify-between items-center">
+                                                {/* 新增：刪除按鈕 */}
+                                                <button onClick={handleDelete} className="text-sm bg-red-900 text-red-200 px-4 py-2 rounded hover:bg-red-800">
+                                                    刪除此列
+                                                </button>
 
-                                            <div className="flex gap-2 justify-end">
-                                                <button onClick={() => setEditingId(null)} className="text-xs bg-gray-700 px-3 py-1 rounded text-white">取消</button>
-                                                <button onClick={handleEditSave} className="text-xs bg-yellow-500 px-3 py-1 rounded text-black font-bold">儲存</button>
+                                                <div className="flex gap-2">
+                                                    <button onClick={() => setEditingId(null)} className="text-sm bg-gray-700 px-4 py-2 rounded text-white">取消</button>
+                                                    <button onClick={handleEditSave} className="text-sm bg-yellow-500 px-4 py-2 rounded text-black font-bold">儲存</button>
+                                                </div>
                                             </div>
                                         </div>
                                     )
@@ -382,37 +435,41 @@ function App() {
                                     <div 
                                         key={log.id} 
                                         onClick={() => handleEditClick(log)} // Click to Edit
-                                        className={`grid grid-cols-12 gap-1 text-sm items-center p-3 rounded cursor-pointer transition-colors active:scale-[0.99]
+                                        className={`grid grid-cols-12 gap-1 text-base items-center p-3 rounded cursor-pointer transition-colors active:scale-[0.99]
                                             ${isToday ? 'bg-gray-900 hover:bg-gray-800' : 'bg-gray-950 opacity-70 hover:opacity-100'}
                                         `}
                                     >
-                                        <div className="col-span-2 text-xs text-gray-500">
+                                        <div className="col-span-2 text-xs text-gray-500 flex flex-col justify-center">
                                             {format(fromUnixTime(log.unix), 'HH:mm')}
                                         </div>
-                                        <div className="col-span-5 font-bold text-white truncate">
-                                            {log.exercise} <span className="text-xs text-gray-400">S{log.set}</span>
+                                        
+                                        {/* 修改：s2 移到前面，字體加大 */}
+                                        <div className="col-span-6 font-bold text-white truncate flex items-center gap-2">
+                                            <span className="text-sm text-yellow-500 bg-yellow-900/30 px-1 rounded">S{log.set}</span>
+                                            <span className="text-lg">{log.exercise}</span>
                                         </div>
-                                        <div className="col-span-5 text-right flex justify-end gap-2 text-gray-300">
+
+                                        <div className="col-span-4 text-right flex justify-end gap-2 text-gray-300 text-lg">
                                             <span>{log.weight}</span>
                                             <span>x{log.rep}</span>
-                                            <span className={PRIMARY_COLOR}>@{log.feeling}</span>
+                                            <span className={`${PRIMARY_COLOR} text-sm flex items-center`}>@{log.feeling}</span>
                                         </div>
                                         {/* Rest Time Display */}
                                         <div className="col-span-12 flex justify-between items-start mt-1 pt-1 border-t border-gray-800/50">
                                             {/* 備註 (小字, 灰色) */}
-                                            <span className="text-xs text-gray-400 italic text-left flex-grow pr-2">
+                                            <span className="text-sm text-gray-400 italic text-left flex-grow pr-2">
                                                 {log.note}
                                             </span>
                                             
                                             {/* Rest Time */}
                                             {log.rest && (
-                                                <span className="text-[10px] text-gray-600 whitespace-nowrap shrink-0">
+                                                <span className="text-xs text-gray-500 whitespace-nowrap shrink-0">
                                                     Rest: {log.rest}s
                                                 </span>
                                             )}
                                         </div>
                                         {!log.rest && isToday && (
-                                            <div className="col-span-12 text-[10px] text-right text-gray-700 mt-1 italic">
+                                            <div className="col-span-12 text-xs text-right text-gray-700 mt-1 italic">
                                                 (點擊紀錄 Rest)
                                             </div>
                                         )}
@@ -425,10 +482,9 @@ function App() {
             )
         })}
         
-        
         <button 
             onClick={() => setLoadMoreCount(c => c + 1)}
-            className="w-full py-4 text-gray-500 text-sm hover:text-white border-t border-gray-800 mt-4"
+            className="w-full py-6 text-gray-500 text-base hover:text-white border-t border-gray-800 mt-4"
         >
             [載入更多歷史紀錄]
         </button>
@@ -437,7 +493,7 @@ function App() {
 
       {/* ---<Contribution Graph start>--- */}
       <div className="mt-12 mb-6 p-4 bg-gray-900/50 rounded-xl">
-          <h4 className="text-xs text-gray-400 mb-3 font-bold uppercase tracking-widest">Consistency</h4>
+          <h4 className="text-sm text-gray-400 mb-3 font-bold uppercase tracking-widest">Consistency</h4>
           <div className="flex gap-1 overflow-x-auto hide-scrollbar pb-2 justify-end">
               {Array.from({ length: 90 }).map((_, i) => {
                   const day = subDays(new Date(), 89 - i);
@@ -459,7 +515,7 @@ function App() {
       </div>
       {/* ---<Contribution Graph end>--- */}
 
-      <footer className="text-center text-[10px] text-gray-600 py-6">
+      <footer className="text-center text-xs text-gray-600 py-6">
           designed by sphsieh 2025
       </footer>
     </div>

@@ -118,6 +118,45 @@ app.post('/api/update', async (req, res) => {
 });
 
 
+
+// 3. POST /api/delete - 刪除紀錄
+app.post('/api/delete', async (req, res) => {
+    try {
+        const { rowId } = req.body;
+        // Google Sheets Row ID 是從 1 開始的
+        // API 的 deleteDimension 使用的是 index (從 0 開始)
+        // 且要刪除第 N 行，startIndex 是 N-1
+        const rowIndex = parseInt(rowId) - 1;
+
+        const client = await auth.getClient();
+        const googleSheets = google.sheets({ version: 'v4', auth: client });
+
+        await googleSheets.spreadsheets.batchUpdate({
+            spreadsheetId: SPREADSHEET_ID,
+            resource: {
+                requests: [{
+                    deleteDimension: {
+                        range: {
+                            // ★★★ 請確認這裡的 sheetId ★★★
+                            // 查看 Google Sheet 網址後面的 #gid=xxxxx
+                            sheetId: 0, 
+                            dimension: "ROWS",
+                            startIndex: rowIndex,
+                            endIndex: rowIndex + 1
+                        }
+                    }
+                }]
+            }
+        });
+
+        res.status(200).send("Deleted successfully");
+    } catch (error) {
+        console.error(error);
+        res.status(500).send("Error deleting data");
+    }
+});
+
+
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
